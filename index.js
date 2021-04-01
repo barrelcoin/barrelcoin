@@ -1,8 +1,7 @@
 const net = require('net');
 const crypto = require('crypto');
 const BlockChain = require('./blockchain')
-const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
-
+const { Worker } = require('worker_threads')
 
 const VERSION_STRING = "1.0.0"
 const MAX_PEER_COUNT = 1024
@@ -22,6 +21,70 @@ process.argv.forEach((val) => {
 
 const db = new BlockChain(`./${options.port}/blocks`);
 
+class Miner {
+
+    constructor(onBlockMined) {
+        this.worker = null;
+        this.onBlockMined = onBlockMined;
+    }
+
+    mine_block(block, difficulty) {
+        if (this.worker) this.worker.terminate();
+        this.worker = new Worker('./miningThread.js', { workerData: {
+            block,
+            difficulty
+        }});
+    
+        this.worker.on('message', (res) => {
+            this.worker.terminate();
+            this.worker = null;
+            this.onBlockMined(res.block);
+        });
+    }
+}
+
+function account_balances() {
+    balances = {}
+    db.longest_chain.forEach(hash => {
+        if (hash == "0000000000000000000000000000000000000000000000000000000000000000") return;
+        const port = db.blocks_by_hash[hash].block.port;
+        if (!(port in balances)) balances[port] = 1
+        else balances[port] += 1
+    })
+    return balances;
+}
+
+const miner = new Miner((block) => {
+    
+    broadcast_message({
+        kind: "block",
+        block: block,
+    });
+
+    db.addBlock(block);
+    console.log(account_balances());
+
+
+    miner.mine_block({
+        "prev_block": db.longest_chain[db.longest_chain.length - 1],
+        "timestamp": Math.floor(new Date().getTime() / 1000),
+        "difficulty": 5,
+        "nonce": 0,
+        "port": options.port,
+        "transactions": []
+    }, 5);
+})
+
+
+miner.mine_block({
+    "prev_block": db.longest_chain[db.longest_chain.length - 1],
+    "timestamp": Math.floor(new Date().getTime() / 1000),
+    "difficulty": 5,
+    "nonce": 0,
+    "port": options.port,
+    "transactions": []
+}, 5); 
+
 const server = net.createServer();
 const connections = {}
 
@@ -36,16 +99,11 @@ server.on('connection', (client) => {
     setup_connection(client)
     handle_connection(client)
 
-    const addr = client.remoteAddress;
-    const port = client.data.listens ? client.data.listeningPort: client.remotePort
-
     client.on("error", () => {
-        delete connections[`${addr}:${port}`]
         destroy_connection(client);
     })
     
     client.on("close", () => {
-        delete connections[`${addr}:${port}`]
         destroy_connection(client);
     })
 })
@@ -68,12 +126,17 @@ function handle_connection(client) {
             kind: "peer-discovery-request"
         })
     }
+
+    send_message(client, {
+        kind: "blocks-request",
+        start_hash: db.longest_chain[db.longest_chain.length - 1]
+    })
+
 }
 
 function handle_message(client, data) {
 
     const message = JSON.parse(data);
-
     // maintain a queue of recent guids... only handle broadcasted messages
     // that have not yet been seen.
     if (message.broadcast && !message.guid) return;
@@ -103,7 +166,7 @@ function handle_message(client, data) {
                 client.data.listens = true;
                 client.data.listeningPort = message.listeningPort;
                 const peer = `${client.remoteAddress}:${client.data.listeningPort}`
-                if (!(peer in connections)) connections[peer] = client;
+                connections[peer] = client;
                 console.log(`[+] ${peer}`)
             } else {
                 console.log(`[*] ${client.remoteAddress}:${client.remotePort}`)
@@ -122,7 +185,68 @@ function handle_message(client, data) {
             message.peers.forEach(connect_to_peer);
             break;
 
+        case "blocks-request":
+            const index = db.longest_chain.indexOf(message.start_hash);
+            if (index == -1) {
+                send_message(client, {
+                    kind: "blocks-response",
+                    start_hash: message.start_hash,
+                    blocks: null
+                })
+            } else {
+                blocks = [];
+                for (let i = index + 1; i < db.longest_chain.length; i++) {
+                    const hash = db.longest_chain[i];
+                    blocks.push(db.blocks_by_hash[hash].block);
+                }
+                send_message(client, {
+                    kind: "blocks-response",
+                    start_hash: message.start_hash,
+                    blocks: blocks
+                })
+            }
+            break;
+
+        case "blocks-response":
+            if (message.blocks == null) {
+                send_message(client, {
+                    kind: "blocks-request",
+                    start_hash: db.longest_chain[0]
+                })
+            } else {
+                const initial_chain_length = db.longest_chain.length;
+                message.blocks.forEach(block => {
+                    db.addBlock(block);
+                })
+                const final_chain_length = db.longest_chain.length;
+                if (final_chain_length > initial_chain_length) {
+                    miner.mine_block({
+                        "prev_block": db.longest_chain[db.longest_chain.length - 1],
+                        "timestamp": Math.floor(new Date().getTime() / 1000),
+                        "difficulty": 5,
+                        "nonce": 0,
+                        "port": options.port,
+                        "transactions": []
+                    }, 5);
+                }
+            }
+            break;
+
         case "block":
+            const initial_chain_length = db.longest_chain.length;
+            db.addBlock(message.block);
+            const final_chain_length = db.longest_chain.length;
+            if (final_chain_length > initial_chain_length) {
+                miner.mine_block({
+                    "prev_block": db.longest_chain[db.longest_chain.length - 1],
+                    "timestamp": Math.floor(new Date().getTime() / 1000),
+                    "difficulty": 5,
+                    "nonce": 0,
+                    "port": options.port,
+                    "transactions": []
+                }, 5);
+            }
+            console.log(account_balances());
             break;
 
         case "error":
@@ -134,7 +258,7 @@ function handle_message(client, data) {
     }
 
     if (message.broadcast) {
-        clients.forEach((client) => client.write(data));
+        Object.values(connections).forEach((client) => client.write(data + "\n"));
     }
 }
 
@@ -145,7 +269,11 @@ function send_message(client, message) {
 function broadcast_message(message) {
     message.guid = crypto.randomBytes(16).toString("hex");
     message.broadcast = true;
-    const data = JSON.stringify(message) + "\n";
+    const data = JSON.stringify(message) + '\n';
+    guid_history.push(message.guid);
+    if (guid_history.length > GUID_HISTORY_LENGTH) {
+        guid_history.shift();
+    }
     Object.values(connections).forEach((client) => client.write(data));
 }
 
@@ -198,12 +326,10 @@ function connect_to_peer(peer) {
     });
 
     client.on("error", () => {
-        delete connections[`${addr}:${port}`]
         destroy_connection(client);
     })
     
     client.on("close", () => {
-        delete connections[`${addr}:${port}`]
         destroy_connection(client);
     })
 } 

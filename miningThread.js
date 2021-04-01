@@ -4,18 +4,21 @@ const crypto = require('crypto')
 const block = workerData.block;
 const difficulty = workerData.difficulty;
 
-function doesBlockSatisfyDifficulty(block, difficulty) {
-    const block_string = JSON.stringify(block, Object.keys(block).sort());
-    const hash = crypto.createHash('sha256').update(block_string).digest('hex');
+function doesHashSatisfyDifficulty(hash, difficulty) {
     for (let i = 0; i < difficulty; i++) {
         if (hash[i] != '0') return false;
     }
-    return true;
+    return hash;
 }
 
-for (let i = 0; i < Number.MAX_SAFE_INTEGER; i++) {
-    block.nonce = i;
-    if (doesBlockSatisfyDifficulty(block, difficulty)) {
-        parentPort.postMessage({ block })
-    }
+while (true) {
+    block.timestamp = Math.floor(new Date().getTime() / 1000);
+    for (let i = 0; i < 0xFFFFFFFF; i++) {
+        block.nonce = i;
+        const block_string = JSON.stringify(block, Object.keys(block).sort());
+        const hash = crypto.createHash('sha256').update(block_string).digest('hex');
+        if (doesHashSatisfyDifficulty(hash, difficulty)) {
+            parentPort.postMessage({ block, hash });
+        }
+    }    
 }
