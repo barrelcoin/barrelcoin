@@ -110,7 +110,7 @@ server.on('connection', (client) => {
 
 options.initial_connections.forEach(connect_to_peer)
 
-server.listen(options.port, '127.0.0.1');
+server.listen(options.port, '0.0.0.0');
 
 
 function handle_connection(client) {
