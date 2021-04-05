@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+const fs = require('fs')
+
+const BlockChain = require('./src/blockchain')
+const Identity = require('./src/identity')
+const Network = require('./src/network')
+const Miner = require('./src/miner')
+
+
+let options = {
+    port: 1960,
+    initial_connections: [],
+    guid_history_length: 1024,
+    identity: 'default'
+}
+
+process.argv.forEach((val) => {
+    if (val.match(/-port=[0-9]+/)) {
+        options.port = parseInt(val.split('=')[1])
+    } else if (val.match(/-connect=[0-9.:]*/)) {
+        options.initial_connections.push(val.split('=')[1])
+    } else if (val.match(/-identity=[a-z]+/)) {
+        options.identity = val.split('=')[1]
+    }
+});
+
+if (!fs.existsSync('./.identities')) {
+    fs.mkdirSync('./.identities');
+}
+
+const identity = new Identity(`./.identities/${options.identity}`);
+console.log(identity.publicKey());
+
+const db = new BlockChain(`./.identities/${options.identity}`);
+
+function nextBlock() {
+
+    const coinbase_transaction = {
+        inputs: [],
+        outputs: [{
+            value: 64.0,
+            publicKey: identity.publicKey(),
+        }]
+    };
+
+    return {
+        "prev_block": db.getLatestHash(),
+        "timestamp": Math.floor(new Date().getTime() / 1000),
+        "difficulty": 5,
+        "nonce": 0,
+        "transactions": [coinbase_transaction]
+    }
+}
+
+const network = new Network(options, db);
+
+/**
+ * @brief Create a new Miner thread that "mines" for cryptocurrency. 
+ */
+const miner = new Miner(nextBlock, (block) => {
+
+    network.broadcast_message({
+        kind: "block",
+        block: block,
+    });
+
+    db.addBlock(block);
+})
+
+/**
+ * As soon as our blockchain is extended, the current block is no longer valid.
+ * We inform our mining thread to restart its calculations using the newly
+ * updated ledger.
+ */
+db.on('extended', () => {
+    miner.mineBlock();
+    console.log(db.accountBalances());
+});
+
+/**
+ * We should get started mining right away!
+ */
+miner.mineBlock();
