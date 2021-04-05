@@ -95,9 +95,16 @@ class Network {
                     break;
 
                 case "peer-discovery-request":
+                    const isLocalHost = client.remoteAddress.startsWith('127');
+                    const isLocal = client.remoteAddress.startsWith('192');
+                    
+                    let peers = Object.keys(this.connections);
+                    if (!isLocalHost) peers = peers.filter(peer => !peer.startsWith('127'));
+                    if (!isLocalHost && !isLocal) peers = peers.filter(peer => !peer.startsWith('192'));
+
                     this.send_message(client, {
                         kind: "peer-discovery-response",
-                        peers: Object.keys(this.connections)
+                        peers: peers
                     })
                     break;
 
