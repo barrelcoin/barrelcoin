@@ -199,11 +199,11 @@ function nextBlock() {
  * updated ledger.
  */
 db.on('extended', () => {
-   // miner.mineBlock();
+    miner.mineBlock();
     console.log(db.accountBalances());
 });
 
 /**
  * We should get started mining right away!
  */
-// miner.mineBlock();
+miner.mineBlock();
