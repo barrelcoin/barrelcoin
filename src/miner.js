@@ -13,10 +13,7 @@ class Miner {
         const block = this.getNextBlock();
 
         if (this.worker) this.worker.terminate();
-        this.worker = new Worker('./src/miningThread.js', { workerData: {
-            block: block,
-            difficulty: block.difficulty
-        }});
+        this.worker = new Worker('./src/miningThread.js', { workerData: block });
     
         this.worker.on('message', (res) => {
             this.worker.terminate();

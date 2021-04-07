@@ -1,17 +1,18 @@
 #!/usr/bin/env node
-const fs = require('fs')
 
 const BlockChain = require('./src/blockchain')
 const Identity = require('./src/identity')
 const Network = require('./src/network')
 const Miner = require('./src/miner')
-
+const crypto = require('crypto')
+const stringify = require('json-stable-stringify');
 
 let options = {
     port: 1960,
     initial_connections: [],
-    guid_history_length: 1024,
-    identity: 'default'
+    identity: 'default',    
+    MAX_PEER_COUNT: 1024,
+    VERSION_STRING: "1.0.0"
 }
 
 process.argv.forEach((val) => {
@@ -24,25 +25,165 @@ process.argv.forEach((val) => {
     }
 });
 
-if (!fs.existsSync('./.identities')) {
-    fs.mkdirSync('./.identities');
-}
-
 const identity = new Identity(`./.identities/${options.identity}`);
-console.log(identity.publicKey());
-
 const db = new BlockChain(`./.identities/${options.identity}`);
+const network = new Network({port: options.port});
+
+options.initial_connections.forEach((peer) => network.connect(peer))
+
+network.on('connect', (peer) => {
+
+    network.send(peer, {
+        kind: "handshake",
+        version: options.VERSION_STRING,
+        listens: true,
+        listeningPort: options.port,
+    });
+    
+    if (network.nodes.length < options.MAX_PEER_COUNT) {
+        network.send(peer, {
+            kind: "peer-discovery-request"
+        })
+    }
+
+    network.send(peer, {
+        kind: "blocks-request",
+        start_hash: db.getLatestHash()
+    })
+
+});
+
+network.on('handshake', (message, peer) => {
+    
+    if (message.version != options.VERSION_STRING) {
+        network.send(peer, {
+            kind: "error",
+            message: "incompatible version"
+        });
+        network.destroy_connection(peer);
+        return;
+    }
+
+    // check if the peer accepts incoming connections
+    if (message.listens && message.listeningPort) {
+        peer.data.listens = true;
+        peer.data.listeningPort = message.listeningPort;
+    } else {
+        peer.data.listens = false;
+    }
+
+    const addr = peer.remoteAddress;
+    const port = message.listens ? peer.data.listeningPort: peer.remotePort;
+    console.log(`[+] ${addr}:${port}`)
+
+})
+
+network.on('disconnect', (peer) => {
+    const addr = peer.remoteAddress;
+    const port = peer.data.listens ? peer.data.listeningPort: peer.remotePort;
+    console.log(`[-] ${addr}:${port}`)
+})
+
+network.on('peer-discovery-request', (message, peer) => {
+
+    const peers = network.nodes.filter(n => n.data && n.data.listens)
+                               .map(n => `${n.remoteAddress}:${n.data.listeningPort}`);
+
+    network.send(peer, {
+        kind: "peer-discovery-response",
+        peers: peers
+    })
+})
+
+network.on('peer-discovery-response', (message) => {
+
+    const peers = network.nodes.filter(n => n.data && n.data.listens)
+                               .map(n => `${n.remoteAddress}:${n.data.listeningPort}`);
+
+    message.peers.forEach((peer) => {
+        
+        if (peers.includes(peer)) return;
+        if (peer == `127.0.0.1:${options.port}`) return;
+
+        network.connect(peer)
+    });
+});
+
+network.on('blocks-request', (message, peer) => {
+    const index = db.longest_chain.indexOf(message.start_hash);
+    if (index == -1) {
+        network.send(peer, {
+            kind: "blocks-response",
+            start_hash: message.start_hash,
+            blocks: null
+        })
+    } else {
+        const blocks = [];
+        for (let i = index + 1; i < db.longest_chain.length; i++) {
+            const hash = db.longest_chain[i];
+            blocks.push(db.blocks_by_hash[hash].block);
+        }
+        network.send(peer, {
+            kind: "blocks-response",
+            start_hash: message.start_hash,
+            blocks: blocks
+        })
+    }
+})
+
+network.on('blocks-response', (message, peer) => {
+    if (message.blocks == null) {
+        network.send(peer, {
+            kind: "blocks-request",
+            start_hash: db.longest_chain[0]
+        })
+    } else {
+        message.blocks.forEach(block => {
+            db.addBlock(block);
+        })
+    }
+});
+    
+network.on('block', (message) => {
+    db.addBlock(message.block);
+});
+
+network.on('error', (message) => {
+    console.error(`error: ${message.message}`);
+});
+
+
+/**
+ * @brief Create a new Miner thread that "mines" for cryptocurrency. 
+ */
+const miner = new Miner(nextBlock, (block) => {
+
+    network.broadcast({
+        kind: "block",
+        block: block,
+    });
+
+    db.addBlock(block);
+})
+
 
 function nextBlock() {
 
     const coinbase_transaction = {
         inputs: [],
         outputs: [{
-            value: 64.0,
-            publicKey: identity.publicKey(),
-        }]
+            value: 64,
+            public_key: identity.publicKey(),
+        }],
     };
 
+    const transaction_hash = crypto.createHash('sha256').update(stringify(coinbase_transaction)).digest('hex');
+
+    coinbase_transaction.signatures = [{
+        public_key: identity.publicKey(),
+        signature: identity.sign(transaction_hash)
+    }]
+    
     return {
         "prev_block": db.getLatestHash(),
         "timestamp": Math.floor(new Date().getTime() / 1000),
@@ -52,32 +193,17 @@ function nextBlock() {
     }
 }
 
-const network = new Network(options, db);
-
-/**
- * @brief Create a new Miner thread that "mines" for cryptocurrency. 
- */
-const miner = new Miner(nextBlock, (block) => {
-
-    network.broadcast_message({
-        kind: "block",
-        block: block,
-    });
-
-    db.addBlock(block);
-})
-
 /**
  * As soon as our blockchain is extended, the current block is no longer valid.
  * We inform our mining thread to restart its calculations using the newly
  * updated ledger.
  */
 db.on('extended', () => {
-    miner.mineBlock();
+   // miner.mineBlock();
     console.log(db.accountBalances());
 });
 
 /**
  * We should get started mining right away!
  */
-miner.mineBlock();
+// miner.mineBlock();

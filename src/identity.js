@@ -24,13 +24,13 @@ class Identity {
 
     publicKey() {
         let pub_key = this.key.getPublic();
-        var pub_key_hex = pub_key.x.toString('hex') + pub_key.y.toString('hex');
+        var pub_key_hex = pub_key.x.toString('hex', 64) + pub_key.y.toString('hex', 64);
         return pub_key_hex;
     }
 
     sign(data) {
         let signature = this.key.sign(data);
-        let signature_hex = signature.r.toString('hex') + signature.s.toString('hex')
+        let signature_hex = signature.r.toString('hex', 64) + signature.s.toString('hex', 64)
         return signature_hex;
     }
 
@@ -38,6 +38,40 @@ class Identity {
         return this.key.verify(data, {
             r: signature_hex.slice(0, 64),
             s: signature_hex.slice(64, 128)
+        });
+    }
+
+    static isPublicKey(pub_key) {
+        if (pub_key == null) return false;
+        if (typeof pub_key != 'string') return false;
+        if (pub_key.length != 128) return false;
+        if (!pub_key.split('').every(c => '0123456789abcdef'.includes(c))) return false;
+        return true;
+    }
+    
+    static isSignature(sig) {
+        console.log(sig.length);
+
+        if (sig == null) return false;
+        if (typeof sig != 'string') return false;
+        if (sig.length != 128) return false;
+        if (!sig.split('').every(c => '0123456789abcdef'.includes(c))) return false;
+        return true;
+    }
+
+    static verify(pub_key, signature, data) {
+        const ec = new EC('secp256k1');
+
+        const key = ec.keyFromPublic({
+            x: pub_key.slice(0, 64),
+            y: pub_key.slice(64, 128)
+        });
+
+        console.log(signature);
+        
+        return key.verify(data, {
+            r: signature.slice(0, 64),
+            s: signature.slice(64, 128)
         });
     }
 };

@@ -2,14 +2,24 @@ const { workerData, parentPort } = require('worker_threads')
 const crypto = require('crypto')
 const stringify = require('json-stable-stringify');
 
-const block = workerData.block;
-const difficulty = workerData.difficulty;
+const block = workerData;
+const difficulty = block.difficulty;
 
+/**
+ * Return true if the hash starts with difficulty zeros and false otherwise.
+ * 
+ * For instance, the following hash satisfies difficulties 0 - 5:
+ * 00000a0d38291805831ae2d1c94074376c752b83255e89fcbdb865af36f79e3d
+ * 
+ * @param {string} hash 
+ * @param {int} difficulty 
+ * @returns 
+ */
 function doesHashSatisfyDifficulty(hash, difficulty) {
     for (let i = 0; i < difficulty; i++) {
         if (hash[i] != '0') return false;
     }
-    return hash;
+    return true;
 }
 
 while (true) {
