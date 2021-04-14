@@ -41,24 +41,6 @@ class Identity {
         });
     }
 
-    static isPublicKey(pub_key) {
-        if (pub_key == null) return false;
-        if (typeof pub_key != 'string') return false;
-        if (pub_key.length != 128) return false;
-        if (!pub_key.split('').every(c => '0123456789abcdef'.includes(c))) return false;
-        return true;
-    }
-    
-    static isSignature(sig) {
-        console.log(sig.length);
-
-        if (sig == null) return false;
-        if (typeof sig != 'string') return false;
-        if (sig.length != 128) return false;
-        if (!sig.split('').every(c => '0123456789abcdef'.includes(c))) return false;
-        return true;
-    }
-
     static verify(pub_key, signature, data) {
         const ec = new EC('secp256k1');
 

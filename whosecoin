@@ -4,12 +4,14 @@ const BlockChain = require('./src/blockchain')
 const Identity = require('./src/identity')
 const Network = require('./src/network')
 const Miner = require('./src/miner')
+const Server = require('./src/server')
+
 const crypto = require('crypto')
 const stringify = require('json-stable-stringify');
-
 let options = {
     port: 1960,
     initial_connections: [],
+    server: false,
     identity: 'default',    
     MAX_PEER_COUNT: 1024,
     VERSION_STRING: "1.0.0"
@@ -22,6 +24,8 @@ process.argv.forEach((val) => {
         options.initial_connections.push(val.split('=')[1])
     } else if (val.match(/-identity=[a-z]+/)) {
         options.identity = val.split('=')[1]
+    } else if (val.match(/-server/)) {
+        options.server = true;
     }
 });
 
@@ -36,15 +40,12 @@ network.on('connect', (peer) => {
     network.send(peer, {
         kind: "handshake",
         version: options.VERSION_STRING,
-        listens: true,
-        listeningPort: options.port,
+        port: options.port,
     });
     
-    if (network.nodes.length < options.MAX_PEER_COUNT) {
-        network.send(peer, {
-            kind: "peer-discovery-request"
-        })
-    }
+    network.send(peer, {
+        kind: "peer-discovery-request"
+    })
 
     network.send(peer, {
         kind: "blocks-request",
@@ -65,30 +66,28 @@ network.on('handshake', (message, peer) => {
     }
 
     // check if the peer accepts incoming connections
-    if (message.listens && message.listeningPort) {
-        peer.data.listens = true;
-        peer.data.listeningPort = message.listeningPort;
-    } else {
-        peer.data.listens = false;
+    if (message.port) {
+        peer.data.port = message.port;
     }
 
     const addr = peer.remoteAddress;
-    const port = message.listens ? peer.data.listeningPort: peer.remotePort;
+    const port = peer.data.port ? peer.data.port: peer.remotePort;
     console.log(`[+] ${addr}:${port}`)
-
 })
 
 network.on('disconnect', (peer) => {
     const addr = peer.remoteAddress;
-    const port = peer.data.listens ? peer.data.listeningPort: peer.remotePort;
+    const port = peer.data.port ? peer.data.port: peer.remotePort;
     console.log(`[-] ${addr}:${port}`)
 })
 
 network.on('peer-discovery-request', (message, peer) => {
 
-    const peers = network.nodes.filter(n => n.data && n.data.listens)
-                               .map(n => `${n.remoteAddress}:${n.data.listeningPort}`);
-
+    // Get a list of all connected nodes that have a known listening port.
+    const peers = network.nodes.filter(n => n.data.port)
+                               .map(n => `${n.remoteAddress}:${n.data.port}`);
+    
+    // Send a response to the peer with a list of address strings.
     network.send(peer, {
         kind: "peer-discovery-response",
         peers: peers
@@ -97,17 +96,26 @@ network.on('peer-discovery-request', (message, peer) => {
 
 network.on('peer-discovery-response', (message) => {
 
-    const peers = network.nodes.filter(n => n.data && n.data.listens)
-                               .map(n => `${n.remoteAddress}:${n.data.listeningPort}`);
+    // In order to avoid multiple redundent connections between nodes,
+    // build a list of currently connected peer address strings. Before
+    // connecting to a node, we will check that we are not already
+    // connected.
+    const peer_addr_strings = network.nodes.map(n => {
+        const addr = n.remoteAddress;
+        const port = n.data.port ? n.data.port: n.remotePort;
+        return `${addr}:${port}`;
+    });
 
-    message.peers.forEach((peer) => {
-        
-        if (peers.includes(peer)) return;
+    // Iterate through all peer address strings obtained from message.
+    // Initiate a connection with the peer if not already connected.
+    message.peers.forEach((peer) => {  
+        if (peer_addr_strings.includes(peer)) return;
         if (peer == `127.0.0.1:${options.port}`) return;
-
         network.connect(peer)
     });
+
 });
+
 
 network.on('blocks-request', (message, peer) => {
     const index = db.longest_chain.indexOf(message.start_hash);
@@ -121,7 +129,7 @@ network.on('blocks-request', (message, peer) => {
         const blocks = [];
         for (let i = index + 1; i < db.longest_chain.length; i++) {
             const hash = db.longest_chain[i];
-            blocks.push(db.blocks_by_hash[hash].block);
+            blocks.push(JSON.parse(db.blocks_by_hash[hash].string));
         }
         network.send(peer, {
             kind: "blocks-response",
@@ -170,26 +178,23 @@ const miner = new Miner(nextBlock, (block) => {
 function nextBlock() {
 
     const coinbase_transaction = {
-        inputs: [],
-        outputs: [{
-            value: 64,
-            public_key: identity.publicKey(),
-        }],
+        sender: '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000',
+        recipient: identity.publicKey(),
+        value: 64,
+        nonce: db.longest_chain.length,
     };
 
     const transaction_hash = crypto.createHash('sha256').update(stringify(coinbase_transaction)).digest('hex');
 
-    coinbase_transaction.signatures = [{
-        public_key: identity.publicKey(),
-        signature: identity.sign(transaction_hash)
-    }]
-    
     return {
-        "prev_block": db.getLatestHash(),
-        "timestamp": Math.floor(new Date().getTime() / 1000),
-        "difficulty": 5,
-        "nonce": 0,
-        "transactions": [coinbase_transaction]
+        header: {
+            "prev_block": db.getLatestHash(),
+            "timestamp": Math.floor(new Date().getTime() / 1000),
+            "difficulty": 5,
+            "nonce": 0,
+            "merkle_root": BlockChain.computeMerkleRoot([transaction_hash])
+        }, 
+        transactions: [coinbase_transaction]
     }
 }
 
@@ -200,10 +205,15 @@ function nextBlock() {
  */
 db.on('extended', () => {
     miner.mineBlock();
-    console.log(db.accountBalances());
 });
 
 /**
  * We should get started mining right away!
  */
 miner.mineBlock();
+
+if (options.server) {
+    const server = new Server(db);
+    server.start();
+}
+

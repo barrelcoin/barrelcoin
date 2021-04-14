@@ -1,0 +1,23 @@
+html
+  head 
+    style
+      include style.css
+  body
+    div(class="container")
+      h1 Transaction
+      div(style="max-width: 100%;")
+        div(class="row")
+          span(style="flex-basis: 80px;") hash
+          span(style="flex-basis: 0; flex: 1")= txn.hash
+        div(class="row")
+          span(style="flex-basis: 80px;") sender
+          span(style="flex-basis: 0; flex: 1")= txn.sender
+        div(class="row")
+          span(style="flex-basis: 80px;") recipient
+          span(style="flex-basis: 0; flex: 1")= txn.recipient
+        div(class="row")
+          span(style="flex-basis: 80px;") value
+          span(style="flex-basis: 0; flex: 1")= txn.value
+        div(class="row")
+          span(style="flex-basis: 80px;") nonce
+          span(style="flex-basis: 0; flex: 1")= txn.nonce

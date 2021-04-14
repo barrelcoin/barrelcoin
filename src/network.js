@@ -107,9 +107,10 @@ class Network {
         const addr = peer.split(':')[0]
         const port = parseInt(peer.split(':')[1])
         const client = new net.Socket();
-
+        
         client.connect(port, addr, () => {
             this.setupConnection(client);
+            client.data.port = port;
             this.handleEvent('connect', client);
         });
 

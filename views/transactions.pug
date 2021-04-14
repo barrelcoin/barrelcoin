@@ -1,0 +1,16 @@
+html
+  head 
+    style
+      include style.css
+  body
+    div(class="container")
+      h1 Transactions
+      div
+        each txn in transactions
+          div(class="row")
+            span(style="flex-basis: 100px; flex: 1")
+              a(href=`/transaction/${txn.hash}`)= txn.hash
+            span(style="flex-basis: 100px; flex: 1")= txn.sender
+            span(style="flex-basis: 100px; flex: 1")= txn.recipient
+            span(style="flex-basis: 100px;")= txn.value
+

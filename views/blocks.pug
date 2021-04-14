@@ -1,0 +1,18 @@
+html
+  head 
+    style
+      include style.css
+  body
+    div(class="container")
+      h1 Blocks
+      div
+        each block in blocks
+          div(class="row")
+            span(style="flex-basis: 36px;")= block.height
+            span(style="flex-basis: 0; flex: 1")
+              a(href=`/block/${block.hash}`)= block.hash
+            span(style="flex-basis: 36px;")= block.header.difficulty
+            span(style="flex-basis: 60px;")= block.header.nonce
+            span(style="flex-basis: 200px;")= new Date(1000 * block.header.timestamp).toISOString()
+            span(style="flex-basis: 100px;")= `${block.size} bytes`
+

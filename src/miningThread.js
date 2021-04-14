@@ -3,7 +3,7 @@ const crypto = require('crypto')
 const stringify = require('json-stable-stringify');
 
 const block = workerData;
-const difficulty = block.difficulty;
+const difficulty = block.header.difficulty;
 
 /**
  * Return true if the hash starts with difficulty zeros and false otherwise.
@@ -23,10 +23,10 @@ function doesHashSatisfyDifficulty(hash, difficulty) {
 }
 
 while (true) {
-    block.timestamp = Math.floor(new Date().getTime() / 1000);
+    block.header.timestamp = Math.floor(new Date().getTime() / 1000);
     for (let i = 0; i < 0xFFFFFFFF; i++) {
-        block.nonce = i;
-        const block_string = stringify(block, Object.keys(block).sort());
+        block.header.nonce = i;
+        const block_string = stringify(block.header);
         const hash = crypto.createHash('sha256').update(block_string).digest('hex');
         if (doesHashSatisfyDifficulty(hash, difficulty)) {
             parentPort.postMessage({ block, hash });

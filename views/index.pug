@@ -1,0 +1,33 @@
+html
+  head 
+    style
+      include style.css
+  body
+    div(class="container")
+      h2 Largest Accounts
+      each account in accounts
+        div(class="row")
+          span(style="flex-basis: 100px;")= account.value
+          span(style="flex-basis: 100px;")= `${account.percentage.toFixed(3)}%`
+          span(style="flex: 1")
+            a(href=`/accounts/${account.pub_key}`)= account.pub_key
+    div(class="grid")
+      div(style="padding: 16px")
+        h2 Latest Blocks
+        each block in blocks
+          div(class="row")
+            span(style="flex-basis: 36px;") 
+              a(href=`/block/${block.hash}`)= block.height
+            span(style="flex-basis: 200px;")= new Date(1000 * block.header.timestamp).toISOString()
+            span(style="flex-basis: 100px;")= `${block.size} bytes`
+        a(class="button" href=`/blocks/0`) All Blocks
+      div(style="padding: 16px")
+        h2 Latest Transactions
+        each txn in transactions
+          div(class="row")
+            span(style="flex-basis: 100px; flex: 1")
+              a(href=`/transaction/${txn.hash}`)= txn.hash
+            span(style="flex-basis: 100px;")= txn.value
+
+        a(class="button" href=`/transactions/0`) All Transactions
+
