@@ -237,7 +237,8 @@ class BlockChain {
         });
 
         block.height = this.getBlockHeight(hash);
-        if (block.weight >= this.longest_chain[this.longest_chain.length - 1].weight) {
+        block.weight = this.getBlockWeight(hash);
+        if (this.getLatestHash() == NULL_HASH || block.weight >= this.getBlockWithHash(this.getLatestHash()).weight) {
             this.longest_chain = this.getHistoryForBlock(hash)
             this.handleEvent('extended');
         }
