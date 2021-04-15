@@ -33,6 +33,9 @@ const identity = new Identity(`./.identities/${options.identity}`);
 const db = new BlockChain(`./.identities/${options.identity}`);
 const network = new Network({port: options.port});
 
+console.log(identity.publicKey());
+console.log(options.initial_connections);
+
 options.initial_connections.forEach((peer) => network.connect(peer))
 
 network.on('connect', (peer) => {
@@ -204,7 +207,7 @@ function nextBlock() {
  * updated ledger.
  */
 db.on('extended', () => {
-    miner.mineBlock();
+     miner.mineBlock();
 });
 
 /**
