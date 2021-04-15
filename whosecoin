@@ -35,7 +35,11 @@ const db = new BlockChain(`./.identities/${options.identity}`);
 const network = new Network({port: options.port});
 
 // Read through known peers and connect to them
-const known_peers = fs.readFileSync('./.identities/default/known_peers.txt', {encoding: 'utf8', flag: 'r'}).split('\n');
+if (!fs.existsSync(this.dir)) {
+    fs.writeFileSync(`./.identities/${options.identity}/knownpeers.txt`, "");
+}
+const known_peers = fs.readFileSync(`./.identities/${options.identity}/knownpeers.txt`, {encoding: 'utf8', flag: 'r'}).split('\n').filter(p => p.length > 0);
+
 known_peers.forEach((peer) => network.connect(peer));
 
 options.initial_connections.forEach((peer) => network.connect(peer));
