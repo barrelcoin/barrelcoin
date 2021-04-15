@@ -5,6 +5,7 @@ const Identity = require('./src/identity')
 const Network = require('./src/network')
 const Miner = require('./src/miner')
 const Server = require('./src/server')
+const fs = require('fs')
 
 const crypto = require('crypto')
 const stringify = require('json-stable-stringify');
@@ -33,10 +34,12 @@ const identity = new Identity(`./.identities/${options.identity}`);
 const db = new BlockChain(`./.identities/${options.identity}`);
 const network = new Network({port: options.port});
 
-console.log(identity.publicKey());
-console.log(options.initial_connections);
+// Read through known peers and connect to them
+const known_peers = fs.readFileSync('./.identities/default/known_peers.txt', {encoding: 'utf8', flag: 'r'}).split('\n');
+known_peers.forEach((peer) => network.connect(peer));
 
-options.initial_connections.forEach((peer) => network.connect(peer))
+options.initial_connections.forEach((peer) => network.connect(peer));
+console.log(identity.publicKey());
 
 network.on('connect', (peer) => {
 
@@ -76,6 +79,9 @@ network.on('handshake', (message, peer) => {
     const addr = peer.remoteAddress;
     const port = peer.data.port ? peer.data.port: peer.remotePort;
     console.log(`[+] ${addr}:${port}`)
+    fs.appendFile('./.identities/default/known_peers.txt', `\n${addr}:${port}`, function (err) {
+      if (err) throw err;
+    });
 })
 
 network.on('disconnect', (peer) => {
