@@ -17,7 +17,7 @@ class BlockChain {
         if (!fs.existsSync(this.dir)) {
             fs.mkdirSync(this.dir, { recursive: true });
         }
-        
+
         this.blocks_by_hash = {}
         this.handlers = {}
         this.transactions_by_hash = {}

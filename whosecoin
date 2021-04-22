@@ -229,4 +229,3 @@ if (options.server) {
     const server = new Server(db);
     server.start();
 }
-
