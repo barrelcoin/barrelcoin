@@ -2,6 +2,7 @@
 
 const BlockChain = require('./src/blockchain')
 const Identity = require('./src/identity')
+const PQueue = require('./src/pQueue')
 const Network = require('./src/network')
 const Miner = require('./src/miner')
 const Server = require('./src/server')
@@ -15,6 +16,7 @@ let options = {
     server: false,
     identity: 'default',    
     MAX_PEER_COUNT: 1024,
+    QUEUED_PEER_COUNT: 20,
     VERSION_STRING: "1.0.0"
 }
 
@@ -36,13 +38,30 @@ const network = new Network({port: options.port});
 
 // Read through known peers and connect to them
 if (!fs.existsSync(this.dir)) {
-    fs.writeFileSync(`./.identities/${options.identity}/knownpeers.txt`, "");
+    fs.writeFileSync(`./.identities/${options.identity}/known_peers.json`, "{}");
 }
-const known_peers = fs.readFileSync(`./.identities/${options.identity}/knownpeers.txt`, {encoding: 'utf8', flag: 'r'}).split('\n').filter(p => p.length > 0);
 
-known_peers.forEach((peer) => network.connect(peer));
+// Open and load known peers
+const data = fs.readFileSync(`./.identities/${options.identity}/known_peers.json`, err => {if (err) throw err});
+const known_peers = JSON.parse(data.toString());
 
-options.initial_connections.forEach((peer) => network.connect(peer));
+// Populate reputation system
+const reputations = {}; //hash table
+const best_peers = new PQueue(); //priority queue
+
+for (peer in known_peers) {
+    reputations[peer.ip] = peer.rep;
+    best_peers.enqueue(peer.ip, peer.rep);
+}
+
+// Attempt to connect to specified peers and then queued peers
+options.initial_connections.forEach(peer => network.connect(peer));
+
+for (i = 0; i < options.QUEUED_PEER_COUNT; i++) {
+    if (i === best_peers.cap()) break;
+    network.connect(best_peers.dequeue());
+}
+
 console.log(identity.publicKey());
 
 network.on('connect', (peer) => {
@@ -83,9 +102,24 @@ network.on('handshake', (message, peer) => {
     const addr = peer.remoteAddress;
     const port = peer.data.port ? peer.data.port: peer.remotePort;
     console.log(`[+] ${addr}:${port}`)
-    fs.appendFile('./.identities/default/known_peers.txt', `\n${addr}:${port}`, function (err) {
-      if (err) throw err;
-    });
+
+    // add reputation points if applicable
+    const peer_str = `${addr}:${port}`;
+    
+    if (peer_str in reputations) {
+        reputations[peer_str] += 1
+    }
+    else {
+        reputations[peer_str] = 1;
+    }
+
+    // update known peers
+    const new_known = [];
+    for (peer in reputations) {
+        new_known.push({"ip": peer, "rep": reputations[peer]});
+    }
+
+    fs.writeFileSync(`./.identities/${options.identity}/known_peers.txt`, JSON.stringify(new_known));
 })
 
 network.on('disconnect', (peer) => {
@@ -124,7 +158,7 @@ network.on('peer-discovery-response', (message) => {
     message.peers.forEach((peer) => {  
         if (peer_addr_strings.includes(peer)) return;
         if (peer == `127.0.0.1:${options.port}`) return;
-        network.connect(peer)
+        network.connect(peer);
     });
 
 });
