@@ -20,6 +20,8 @@ let options = {
     VERSION_STRING: "1.0.0"
 }
 
+let transaction_pool = []
+
 process.argv.forEach((val) => {
     if (val.match(/-port=[0-9]+/)) {
         options.port = parseInt(val.split('=')[1])
@@ -198,7 +200,18 @@ network.on('blocks-response', (message, peer) => {
         })
     }
 });
-    
+   
+network.on('pool-request', (message, peer) => {
+    network.send(peer, {
+        kind: "pool-response",
+        pool: transaction_pool
+    })
+})
+
+network.on('pool-response', (message, peer) => {
+    transaction_pool = message.pool;
+});
+
 network.on('block', (message) => {
     db.addBlock(message.block);
 });
